@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import pytorch_lightning as pl
-import numpy as np
 import torch.nn.functional as F
+from torch import Tensor
 
 
 class ContractingBlock(nn.Module, ):
@@ -152,7 +152,7 @@ class UNet(pl.LightningModule):
                 targets.squeeze(dim=1),
                 num_classes=masks_pred.shape[1])\
                 .permute(0, 3, 1, 2).long()
-            loss = self.dice_loss(
+            loss = self.dice_coeff(
                 pred_ohe,
                 target_ohe.long())
             # loss.backward(retain_graph=True)
@@ -175,4 +175,21 @@ class UNet(pl.LightningModule):
         dice = (2. * intersection + smooth) / (union + smooth)
         
         return 1 - dice
+
+    @staticmethod
+    def dice_coeff(input: Tensor, target: Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
+        # Average of Dice coefficient for all batches, or for a single mask
+        assert input.size() == target.size()
+        assert input.dim() == 3 or not reduce_batch_first
+
+        input = input.flatten(0, 1)
+        target = target.flatten(0, 1)
+        sum_dim = (-1, -2) if input.dim() == 2 or not reduce_batch_first else (-1, -2, -3)
+
+        inter = 2 * (input * target).sum(dim=sum_dim)
+        sets_sum = input.sum(dim=sum_dim) + target.sum(dim=sum_dim)
+        sets_sum = torch.where(sets_sum == 0, inter, sets_sum)
+
+        dice = (inter + epsilon) / (sets_sum + epsilon)
+        return dice.mean()
 
