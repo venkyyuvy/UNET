@@ -155,7 +155,7 @@ class UNet(pl.LightningModule):
             loss = self.dice_loss(
                 pred_ohe,
                 target_ohe.long())
-            loss.backward(retain_graph=True)
+            # loss.backward(retain_graph=True)
         else:
             raise ValueError("invalid loss_fn values")
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
