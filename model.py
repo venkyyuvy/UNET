@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 import torch.nn.functional as F
-from torch import Tensor
 
 
 class ContractingBlock(nn.Module, ):
@@ -107,6 +106,7 @@ class UNet(pl.LightningModule):
         super(UNet, self).__init__()
         
         self.loss_fn = loss_fn
+        self.num_classes = out_channels
         self.contract1 = ContractingBlock(in_channels, 64, contract_method)
         self.contract2 = ContractingBlock(64, 128, contract_method)
         self.contract3 = ContractingBlock(128, 256, contract_method)
@@ -135,7 +135,7 @@ class UNet(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), 1E-4)
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch):
         images, targets = batch
         masks_pred = self(images)
         if self.loss_fn == "ce":
@@ -143,53 +143,30 @@ class UNet(pl.LightningModule):
             loss = loss_fn_(
                 masks_pred, targets.squeeze(dim=1).long())
         elif self.loss_fn == "dice":
-            pred_ohe = F.one_hot(
-                masks_pred.argmax(dim=1),
-                num_classes=masks_pred.shape[1])\
-                .permute(0, 3, 1, 2).float()
-            pred_ohe.requires_grad = True
+            masks_prob = masks_pred.softmax(dim=1)
             target_ohe = F.one_hot(
                 targets.squeeze(dim=1),
                 num_classes=masks_pred.shape[1])\
                 .permute(0, 3, 1, 2).long()
-            loss = self.dice_coeff(
-                pred_ohe,
-                target_ohe.long())
-            # loss.backward(retain_graph=True)
+            loss = self.dice_multi_class(
+                masks_prob.float(),
+                target_ohe.float())
         else:
             raise ValueError("invalid loss_fn values")
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return loss
 
     @staticmethod
-    def dice_loss(pred, target):
-        smooth = 1e-5
-        
-        # flatten predictions and targets
-        pred = pred.reshape(-1)
-        target = target.reshape(-1)
-        
-        intersection = (pred * target).sum()
-        union = pred.sum() + target.sum()
-        
-        dice = (2. * intersection + smooth) / (union + smooth)
-        
-        return 1 - dice
+    def dice_multi_class(pred, target, smooth=1e-5):
+        pred = pred.view(pred.size(0), pred.size(1), -1)
+        target = target.view(target.size(0), pred.size(1), -1)
 
-    @staticmethod
-    def dice_coeff(input: Tensor, target: Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
-        # Average of Dice coefficient for all batches, or for a single mask
-        assert input.size() == target.size()
-        assert input.dim() == 3 or not reduce_batch_first
+        intersection = torch.sum(pred * target, dim=1)
+        union = torch.sum(pred, dim=1) + torch.sum(target, dim=1)
 
-        input = input.flatten(0, 1)
-        target = target.flatten(0, 1)
-        sum_dim = (-1, -2) if input.dim() == 2 or not reduce_batch_first else (-1, -2, -3)
+        dice_per_class = (2. * intersection + smooth) / (union + smooth)
 
-        inter = 2 * (input * target).sum(dim=sum_dim)
-        sets_sum = input.sum(dim=sum_dim) + target.sum(dim=sum_dim)
-        sets_sum = torch.where(sets_sum == 0, inter, sets_sum)
+        dice_coefficient = torch.mean(dice_per_class)
 
-        dice = (inter + epsilon) / (sets_sum + epsilon)
-        return dice.mean()
+        return 1 - dice_coefficient
 
