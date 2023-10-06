@@ -143,12 +143,17 @@ class UNet(pl.LightningModule):
             loss = loss_fn_(
                 masks_pred, targets.squeeze(dim=1).long())
         elif self.loss_fn == "dice":
-            pred_class = masks_pred.argmax(dim=1)\
-                .unsqueeze(1).float()
-            pred_class.requires_grad = True
+            pred_ohe = F.one_hot(
+                masks_pred.argmax(dim=1),
+                num_classes=masks_pred.shape[1]).float()
+            pred_ohe.requires_grad = True
+            target_ohe = F.one_hot(
+                targets.squeeze(dim=1),
+                num_classes=masks_pred.shape[1])\
+                .permute(0, 3, 1, 2).long()
             loss = self.dice_loss(
-                pred_class,
-                targets.squeeze(dim=1).long())
+                pred_ohe,
+                target_ohe.long())
             loss.backward(retain_graph=True)
         else:
             raise ValueError("invalid loss_fn values")
