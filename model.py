@@ -145,7 +145,8 @@ class UNet(pl.LightningModule):
         elif self.loss_fn == "dice":
             pred_ohe = F.one_hot(
                 masks_pred.argmax(dim=1),
-                num_classes=masks_pred.shape[1]).float()
+                num_classes=masks_pred.shape[1])\
+                .permute(0, 3, 1, 2).float()
             pred_ohe.requires_grad = True
             target_ohe = F.one_hot(
                 targets.squeeze(dim=1),
@@ -165,7 +166,7 @@ class UNet(pl.LightningModule):
         smooth = 1e-5
         
         # flatten predictions and targets
-        pred = pred.view(-1)
+        pred = pred.reshape(-1)
         target = target.reshape(-1)
         
         intersection = (pred * target).sum()
